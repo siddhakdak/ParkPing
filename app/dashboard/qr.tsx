@@ -17,18 +17,77 @@ export default function QRPanel({
   vehicle: Vehicle;
 }) {
   const [open, setOpen] = useState(false);
-  const [stickerOpen, setStickerOpen] =
-    useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const qrUrl =
-    `/api/owner/vehicles/${vehicle.id}/qr`;
+  const qrUrl = `/api/owner/vehicles/${vehicle.id}/qr`;
 
   const vehicleName =
     vehicle.nickname ||
     vehicle.model ||
     "My Vehicle";
 
+  function safeFileName() {
+    return (
+      vehicle.registration_number ||
+      vehicleName ||
+      "Vehicle"
+    )
+      .replace(/[^a-zA-Z0-9-_]/g, "-")
+      .replace(/-+/g, "-");
+  }
+
+  /*
+   * Download the actual QR image directly.
+   * This avoids navigating to a blank browser page.
+   */
+  async function downloadQR() {
+    setBusy(true);
+
+    try {
+      const response = await fetch(qrUrl, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to load QR code.");
+      }
+
+      const blob = await response.blob();
+
+      const blobUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+
+      link.href = blobUrl;
+      link.download = `ParkPing-QR-${safeFileName()}.png`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("QR download failed:", error);
+
+      alert(
+        "Unable to download QR code. Please try again."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /*
+   * Generate compact PDF.
+   *
+   * Maximum size:
+   * 5 x 5 inches
+   * = 127 x 127 mm
+   *
+   * We use a square PDF so it never becomes
+   * a full A4-sized document.
+   */
   async function downloadPDF() {
     const sticker =
       document.getElementById(
@@ -46,32 +105,33 @@ export default function QRPanel({
         backgroundColor: "#ffffff",
       });
 
-      const pdf =
-        new jsPDF({
-          orientation: "portrait",
-          unit: "mm",
-          format: [100, 140],
-        });
+      const MAX_MM = 127;
+
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: [MAX_MM, MAX_MM],
+      });
+
+      /*
+       * Keep a small printable margin.
+       */
+      const margin = 5;
+
+      const contentSize =
+        MAX_MM - margin * 2;
 
       pdf.addImage(
         dataUrl,
         "PNG",
-        0,
-        0,
-        100,
-        140
+        margin,
+        margin,
+        contentSize,
+        contentSize
       );
 
-      const safeName =
-        (vehicle.registration_number ||
-          vehicleName)
-          .replace(
-            /[^a-zA-Z0-9-_]/g,
-            "-"
-          );
-
       pdf.save(
-        `ParkPing-QR-Sticker-${safeName}.pdf`
+        `ParkPing-QR-Sticker-${safeFileName()}.pdf`
       );
     } catch (error) {
       console.error(
@@ -104,15 +164,13 @@ export default function QRPanel({
         backgroundColor: "#ffffff",
       });
 
-      const response =
-        await fetch(dataUrl);
+      const response = await fetch(dataUrl);
 
-      const blob =
-        await response.blob();
+      const blob = await response.blob();
 
       const file = new File(
         [blob],
-        "ParkPing-QR-Sticker.png",
+        `ParkPing-QR-Sticker-${safeFileName()}.png`,
         {
           type: "image/png",
         }
@@ -137,24 +195,20 @@ export default function QRPanel({
       }
 
       /*
-       * Fallback:
-       * If native file sharing isn't supported,
-       * download the sticker image instead.
+       * Fallback to downloading PNG.
        */
       const link =
         document.createElement("a");
 
       link.download =
-        "ParkPing-QR-Sticker.png";
+        `ParkPing-QR-Sticker-${safeFileName()}.png`;
 
       link.href = dataUrl;
 
+      document.body.appendChild(link);
       link.click();
+      link.remove();
     } catch (error) {
-      /*
-       * User cancelling the share dialog
-       * should not show an error.
-       */
       if (
         error instanceof DOMException &&
         error.name === "AbortError"
@@ -168,7 +222,7 @@ export default function QRPanel({
       );
 
       alert(
-        "Sharing is not supported on this device. The sticker image will be downloaded instead."
+        "Sharing is not supported on this device."
       );
     } finally {
       setBusy(false);
@@ -186,6 +240,11 @@ export default function QRPanel({
         type="button"
         className="btn btn-light"
         onClick={() => setOpen(true)}
+        style={{
+          minHeight: 42,
+          padding: "0 15px",
+          fontWeight: 700,
+        }}
       >
         ▦ View QR
       </button>
@@ -196,38 +255,39 @@ export default function QRPanel({
           style={{
             position: "fixed",
             inset: 0,
-            background:
-              "rgba(0,0,0,.55)",
+            background: "rgba(0,0,0,.60)",
             zIndex: 20,
             display: "grid",
             placeItems: "center",
             padding: 16,
             overflowY: "auto",
+            backdropFilter: "blur(5px)",
           }}
         >
           <div
             className="card"
             style={{
               padding: 28,
-              width:
-                "min(420px,100%)",
+              width: "min(440px,100%)",
               textAlign: "center",
               position: "relative",
+              borderRadius: 20,
             }}
           >
+            {/* CLOSE */}
             <button
               type="button"
               className="no-print"
-              onClick={() =>
-                setOpen(false)
-              }
+              onClick={() => setOpen(false)}
               style={{
                 position: "absolute",
                 right: 15,
                 top: 12,
+                width: 36,
+                height: 36,
                 border: 0,
-                background:
-                  "transparent",
+                borderRadius: 10,
+                background: "#f3f3f3",
                 fontSize: 22,
                 cursor: "pointer",
               }}
@@ -237,31 +297,70 @@ export default function QRPanel({
 
             <div
               style={{
-                fontSize: 22,
+                fontSize: 12,
                 fontWeight: 800,
+                letterSpacing: "0.12em",
+                color: "#777",
+                textTransform: "uppercase",
+                marginBottom: 7,
               }}
             >
-              🚗 NEED TO CONTACT ME?
+              ParkPing QR
             </div>
 
-            <p className="muted">
-              SCAN HERE — NO PHONE NUMBER
-              REQUIRED
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 25,
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Contact this vehicle
+            </h2>
+
+            <p
+              className="muted"
+              style={{
+                margin: "7px 0 18px",
+                fontSize: 14,
+              }}
+            >
+              Scan the QR code to contact the
+              owner without seeing their phone
+              number.
             </p>
 
-            <img
-              src={qrUrl}
-              alt="Vehicle QR code"
+            {/* QR */}
+            <div
               style={{
-                width: 280,
-                height: 280,
-                margin:
-                  "10px auto",
-                display: "block",
+                width: 292,
+                maxWidth: "100%",
+                aspectRatio: "1",
+                margin: "0 auto 15px",
+                padding: 12,
+                background: "#fff",
+                border: "1px solid #e5e5e5",
+                borderRadius: 18,
+                boxSizing: "border-box",
               }}
-            />
+            >
+              <img
+                src={qrUrl}
+                alt="Vehicle QR code"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  display: "block",
+                }}
+              />
+            </div>
 
-            <strong>
+            <strong
+              style={{
+                display: "block",
+                fontSize: 17,
+              }}
+            >
               {vehicleName}
             </strong>
 
@@ -270,37 +369,51 @@ export default function QRPanel({
                 className="muted"
                 style={{
                   marginTop: 4,
+                  fontSize: 13,
+                  letterSpacing: ".05em",
                 }}
               >
-                {
-                  vehicle.registration_number
-                }
+                {vehicle.registration_number}
               </div>
             )}
 
+            {/* ACTIONS */}
             <div
               style={{
-                marginTop: 18,
-                display: "flex",
-                gap: 8,
-                justifyContent:
-                  "center",
-                flexWrap: "wrap",
+                marginTop: 22,
+                display: "grid",
+                gridTemplateColumns:
+                  "1fr 1fr",
+                gap: 9,
               }}
             >
-              <a
+              <button
+                type="button"
                 className="btn btn-dark no-print"
-                href={`${qrUrl}?download=1`}
+                disabled={busy}
+                onClick={() => {
+                  void downloadQR();
+                }}
+                style={{
+                  minHeight: 44,
+                  fontWeight: 700,
+                }}
               >
-                Download QR
-              </a>
+                {busy
+                  ? "Downloading…"
+                  : "⬇ Download QR"}
+              </button>
 
               <button
                 type="button"
                 className="btn btn-light no-print"
                 onClick={printSticker}
+                style={{
+                  minHeight: 44,
+                  fontWeight: 700,
+                }}
               >
-                Print
+                🖨 Print
               </button>
 
               <button
@@ -309,6 +422,11 @@ export default function QRPanel({
                 onClick={() =>
                   setStickerOpen(true)
                 }
+                style={{
+                  gridColumn: "1 / -1",
+                  minHeight: 46,
+                  fontWeight: 800,
+                }}
               >
                 ✨ Generate QR Sticker
               </button>
@@ -323,21 +441,19 @@ export default function QRPanel({
           style={{
             position: "fixed",
             inset: 0,
-            background:
-              "rgba(0,0,0,.72)",
+            background: "rgba(0,0,0,.76)",
             zIndex: 30,
             display: "grid",
             placeItems: "center",
             padding: 16,
             overflowY: "auto",
+            backdropFilter: "blur(6px)",
           }}
         >
           <div
             style={{
-              width:
-                "min(520px,100%)",
-              maxHeight:
-                "95vh",
+              width: "min(520px,100%)",
+              maxHeight: "95vh",
               overflowY: "auto",
             }}
           >
@@ -353,13 +469,28 @@ export default function QRPanel({
                 color: "#fff",
               }}
             >
-              <strong
-                style={{
-                  fontSize: 18,
-                }}
-              >
-                QR Sticker Preview
-              </strong>
+              <div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    opacity: 0.7,
+                    textTransform:
+                      "uppercase",
+                    letterSpacing:
+                      ".1em",
+                  }}
+                >
+                  ParkPing
+                </div>
+
+                <strong
+                  style={{
+                    fontSize: 19,
+                  }}
+                >
+                  QR Sticker
+                </strong>
+              </div>
 
               <button
                 type="button"
@@ -371,10 +502,10 @@ export default function QRPanel({
                   background:
                     "rgba(255,255,255,.15)",
                   color: "#fff",
-                  borderRadius: 8,
+                  borderRadius: 10,
                   fontSize: 22,
-                  width: 38,
-                  height: 38,
+                  width: 40,
+                  height: 40,
                   cursor: "pointer",
                 }}
               >
@@ -382,24 +513,19 @@ export default function QRPanel({
               </button>
             </div>
 
-            {/* PRINT STICKER */}
+            {/* STICKER */}
             <div
               id="parkping-qr-sticker"
               style={{
                 width: "100%",
-                aspectRatio:
-                  "100 / 140",
-                background:
-                  "#ffffff",
+                aspectRatio: "1 / 1",
+                background: "#ffffff",
                 borderRadius: 20,
                 padding: "7%",
-                boxSizing:
-                  "border-box",
+                boxSizing: "border-box",
                 display: "flex",
-                flexDirection:
-                  "column",
-                alignItems:
-                  "center",
+                flexDirection: "column",
+                alignItems: "center",
                 justifyContent:
                   "space-between",
                 textAlign: "center",
@@ -419,7 +545,7 @@ export default function QRPanel({
                 <div
                   style={{
                     fontSize:
-                      "clamp(18px, 4vw, 25px)",
+                      "clamp(18px,4vw,25px)",
                     fontWeight: 900,
                     letterSpacing:
                       "1.5px",
@@ -430,21 +556,19 @@ export default function QRPanel({
 
                 <div
                   style={{
-                    marginTop: 4,
+                    marginTop: 5,
                     height: 3,
                     width: 55,
                     background:
                       "#111111",
-                    marginLeft:
-                      "auto",
-                    marginRight:
-                      "auto",
+                    marginLeft: "auto",
+                    marginRight: "auto",
                     borderRadius: 10,
                   }}
                 />
               </div>
 
-              {/* EMERGENCY MESSAGE */}
+              {/* MESSAGE */}
               <div
                 style={{
                   width: "100%",
@@ -453,10 +577,11 @@ export default function QRPanel({
                 <div
                   style={{
                     fontSize:
-                      "clamp(18px, 5vw, 28px)",
+                      "clamp(20px,5vw,30px)",
                     fontWeight: 900,
                     letterSpacing:
-                      ".5px",
+                      ".3px",
+                    lineHeight: 1.05,
                   }}
                 >
                   IN CASE OF
@@ -466,12 +591,11 @@ export default function QRPanel({
 
                 <div
                   style={{
-                    marginTop: 8,
+                    marginTop: 9,
                     fontSize:
-                      "clamp(11px, 3vw, 15px)",
+                      "clamp(11px,3vw,15px)",
                     lineHeight: 1.4,
-                    color:
-                      "#555555",
+                    color: "#555",
                   }}
                 >
                   Scan this QR code to
@@ -483,14 +607,13 @@ export default function QRPanel({
               {/* QR */}
               <div
                 style={{
-                  background:
-                    "#ffffff",
-                  padding:
-                    "4%",
+                  background: "#fff",
+                  padding: "3.5%",
                   border:
-                    "1px solid #e5e5e5",
-                  borderRadius: 14,
-                  width: "72%",
+                    "1px solid #dedede",
+                  borderRadius: 15,
+                  width: "68%",
+                  maxWidth: 330,
                   boxSizing:
                     "border-box",
                 }}
@@ -515,7 +638,7 @@ export default function QRPanel({
                 <div
                   style={{
                     fontSize:
-                      "clamp(15px, 4vw, 21px)",
+                      "clamp(15px,4vw,21px)",
                     fontWeight: 800,
                   }}
                 >
@@ -527,12 +650,11 @@ export default function QRPanel({
                     style={{
                       marginTop: 4,
                       fontSize:
-                        "clamp(12px, 3vw, 15px)",
+                        "clamp(12px,3vw,15px)",
                       fontWeight: 700,
                       letterSpacing:
                         "1px",
-                      color:
-                        "#555555",
+                      color: "#555",
                     }}
                   >
                     {
@@ -546,16 +668,14 @@ export default function QRPanel({
               <div
                 style={{
                   fontSize:
-                    "clamp(9px, 2.5vw, 12px)",
-                  color:
-                    "#777777",
+                    "clamp(9px,2.5vw,12px)",
+                  color: "#777",
                   lineHeight: 1.4,
                 }}
               >
                 Private & secure
                 <br />
-                No phone number is
-                displayed.
+                No phone number is displayed.
               </div>
             </div>
 
@@ -577,6 +697,10 @@ export default function QRPanel({
                 onClick={() => {
                   void downloadPDF();
                 }}
+                style={{
+                  minHeight: 44,
+                  fontWeight: 700,
+                }}
               >
                 {busy
                   ? "Working…"
@@ -590,6 +714,10 @@ export default function QRPanel({
                 onClick={() => {
                   void shareSticker();
                 }}
+                style={{
+                  minHeight: 44,
+                  fontWeight: 700,
+                }}
               >
                 📤 Share
               </button>
@@ -599,9 +727,26 @@ export default function QRPanel({
                 className="btn btn-light"
                 disabled={busy}
                 onClick={printSticker}
+                style={{
+                  minHeight: 44,
+                  fontWeight: 700,
+                }}
               >
-                🖨️ Print
+                🖨 Print
               </button>
+            </div>
+
+            <div
+              className="no-print"
+              style={{
+                color: "rgba(255,255,255,.65)",
+                textAlign: "center",
+                fontSize: 12,
+                marginTop: 10,
+              }}
+            >
+              Compact 5 × 5 inch maximum
+              print size
             </div>
           </div>
         </div>
