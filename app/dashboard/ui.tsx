@@ -26,6 +26,9 @@ export default function DashboardClient({
         padding: "25px 0 70px",
       }}
     >
+      {/* Automatic push setup */}
+      <PushSetup />
+
       <header
         style={{
           display: "flex",
@@ -57,9 +60,8 @@ export default function DashboardClient({
             flexWrap: "wrap",
           }}
         >
-          <PushSetup />
-
           <button
+            type="button"
             className="btn btn-light"
             onClick={() =>
               setTab(
@@ -102,12 +104,16 @@ export default function DashboardClient({
             }}
           >
             <div
-              style={{ fontSize: 44 }}
+              style={{
+                fontSize: 44,
+              }}
             >
               🚗
             </div>
 
-            <h2>No vehicles yet</h2>
+            <h2>
+              No vehicles yet
+            </h2>
 
             <p className="muted">
               Create your first QR identity.
@@ -124,7 +130,9 @@ export default function DashboardClient({
           vehicles.map((v) => (
             <div
               className="card"
-              style={{ padding: 22 }}
+              style={{
+                padding: 22,
+              }}
               key={v.id}
             >
               <div
@@ -139,7 +147,8 @@ export default function DashboardClient({
                 <div>
                   <h2
                     style={{
-                      margin: "0 0 5px",
+                      margin:
+                        "0 0 5px",
                     }}
                   >
                     {v.nickname ||
@@ -150,7 +159,10 @@ export default function DashboardClient({
                   </h2>
 
                   <div className="muted">
-                    {v.registration_number} ·{" "}
+                    {
+                      v.registration_number
+                    }{" "}
+                    ·{" "}
                     {v.is_active
                       ? "🟢 Active"
                       : "⚪ Inactive"}
@@ -158,7 +170,9 @@ export default function DashboardClient({
                 </div>
 
                 <span
-                  style={{ fontSize: 28 }}
+                  style={{
+                    fontSize: 28,
+                  }}
                 >
                   {v.vehicle_type ===
                   "Bike"
@@ -185,6 +199,7 @@ export default function DashboardClient({
                 </Link>
 
                 <button
+                  type="button"
                   className="btn btn-light"
                   onClick={async () => {
                     await fetch(
@@ -228,9 +243,8 @@ export default function DashboardClient({
       </div>
 
       {/* INBOX
-          IMPORTANT:
-          Inbox remains mounted even when hidden.
-          Therefore realtime + alarm continue working.
+          Kept mounted even when hidden so
+          Realtime continues running.
       */}
       <div
         style={{
