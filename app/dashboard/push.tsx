@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { enableAlarmAudio } from "@/lib/alarm";
 
 export default function PushSetup() {
   const [status, setStatus] = useState("");
@@ -13,18 +14,40 @@ export default function PushSetup() {
     setStatus("");
 
     try {
+      // Unlock browser audio first.
+      const audioReady = await enableAlarmAudio();
+
+      if (!audioReady) {
+        setStatus(
+          "Sound could not be enabled. Check your browser sound settings."
+        );
+      }
+
+      // Check browser notification support.
       if (!("Notification" in window)) {
-        setStatus("Notifications are not supported on this browser.");
+        setStatus(
+          audioReady
+            ? "✅ Sound enabled. Browser notifications are not supported."
+            : "Notifications are not supported on this browser."
+        );
         return;
       }
 
       if (!("serviceWorker" in navigator)) {
-        setStatus("Service workers are not supported here.");
+        setStatus(
+          audioReady
+            ? "✅ Sound enabled. Service workers are not supported."
+            : "Service workers are not supported here."
+        );
         return;
       }
 
       if (!("PushManager" in window)) {
-        setStatus("Push notifications are not supported here.");
+        setStatus(
+          audioReady
+            ? "✅ Sound enabled. Push notifications are not supported."
+            : "Push notifications are not supported here."
+        );
         return;
       }
 
@@ -33,7 +56,9 @@ export default function PushSetup() {
 
       if (!vapidKey) {
         setStatus(
-          "Push is not configured. Check the VAPID public key."
+          audioReady
+            ? "✅ Sound enabled. Push is not configured."
+            : "Push is not configured."
         );
         return;
       }
@@ -41,12 +66,15 @@ export default function PushSetup() {
       let permission = Notification.permission;
 
       if (permission !== "granted") {
-        permission = await Notification.requestPermission();
+        permission =
+          await Notification.requestPermission();
       }
 
       if (permission !== "granted") {
         setStatus(
-          "Notifications are blocked. Enable them in browser settings."
+          audioReady
+            ? "✅ Sound enabled. Notifications are blocked."
+            : "Notifications are blocked."
         );
         return;
       }
@@ -75,10 +103,9 @@ export default function PushSetup() {
         !json.keys?.p256dh ||
         !json.keys?.auth
       ) {
-        setStatus(
+        throw new Error(
           "Could not create a valid push subscription."
         );
-        return;
       }
 
       const response = await fetch(
@@ -105,7 +132,9 @@ export default function PushSetup() {
         );
       }
 
-      setStatus("✅ Push alerts enabled.");
+      setStatus(
+        "✅ Alerts + sound enabled"
+      );
     } catch (error) {
       console.error("Push setup error:", error);
 
@@ -128,7 +157,7 @@ export default function PushSetup() {
       >
         {busy
           ? "Enabling…"
-          : "🔔 Enable alerts"}
+          : "🔔 Enable alerts & sound"}
       </button>
 
       {status && (
