@@ -1,96 +1,120 @@
 let audioContext: AudioContext | null = null;
+let audioElement: HTMLAudioElement | null = null;
 let alarmTimer: ReturnType<typeof setInterval> | null = null;
+
 let audioEnabled = false;
 
 export async function enableAlarmAudio(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined") {
+    return false;
+  }
 
   try {
+    /*
+     * Create AudioContext.
+     */
     const AudioContextClass =
       window.AudioContext ||
-      (window as typeof window & {
-        webkitAudioContext?: typeof AudioContext;
-      }).webkitAudioContext;
+      (
+        window as typeof window & {
+          webkitAudioContext?: typeof AudioContext;
+        }
+      ).webkitAudioContext;
 
-    if (!AudioContextClass) return false;
+    if (AudioContextClass) {
+      if (!audioContext) {
+        audioContext = new AudioContextClass();
+      }
 
-    if (!audioContext) {
-      audioContext = new AudioContextClass();
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
     }
 
-    if (audioContext.state === "suspended") {
-      await audioContext.resume();
+    /*
+     * Create the custom ParkPing sound.
+     */
+    if (!audioElement) {
+      audioElement = new Audio(
+        "/sounds/parkping-alert.mp3"
+      );
+
+      audioElement.preload = "auto";
+      audioElement.volume = 1;
     }
 
-    if (audioContext.state !== "running") {
-      return false;
-    }
+    /*
+     * Test the audio element.
+     *
+     * If the browser blocks autoplay, this will fail
+     * silently and we'll try again on user interaction.
+     */
+    audioElement.currentTime = 0;
 
-    // Small test beep to unlock audio after user interaction
-    playBeep(880, 0.08);
+    await audioElement.play();
+
+    audioElement.pause();
+    audioElement.currentTime = 0;
 
     audioEnabled = true;
+
     return true;
   } catch (error) {
-    console.error("Alarm audio error:", error);
+    console.log(
+      "ParkPing: Audio requires user interaction.",
+      error
+    );
+
     return false;
   }
 }
 
-function playBeep(frequency: number, duration: number) {
-  if (!audioContext || audioContext.state !== "running") return;
+async function playCustomAlarm() {
+  if (!audioElement) {
+    audioElement = new Audio(
+      "/sounds/parkping-alert.mp3"
+    );
 
-  const oscillator = audioContext.createOscillator();
-  const gain = audioContext.createGain();
-
-  const now = audioContext.currentTime;
-
-  oscillator.type = "square";
-  oscillator.frequency.setValueAtTime(frequency, now);
-
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
-  gain.gain.exponentialRampToValueAtTime(
-    0.0001,
-    now + duration
-  );
-
-  oscillator.connect(gain);
-  gain.connect(audioContext.destination);
-
-  oscillator.start(now);
-  oscillator.stop(now + duration);
-}
-
-function alarmSound() {
-  if (!audioEnabled) return;
-  if (!audioContext) return;
-
-  if (audioContext.state === "suspended") {
-    audioContext.resume();
+    audioElement.preload = "auto";
+    audioElement.volume = 1;
   }
 
-  playBeep(880, 0.15);
+  try {
+    audioElement.currentTime = 0;
 
-  setTimeout(() => {
-    playBeep(660, 0.15);
-  }, 180);
+    await audioElement.play();
+  } catch (error) {
+    console.log(
+      "ParkPing alarm playback blocked:",
+      error
+    );
+  }
 }
 
 export function startAlarm(): boolean {
-  if (!audioEnabled || !audioContext) {
+  /*
+   * If audio has not been unlocked by the browser,
+   * don't attempt to force playback.
+   */
+  if (!audioEnabled) {
     return false;
   }
 
+  /*
+   * Don't create multiple alarms.
+   */
   if (alarmTimer) {
     return true;
   }
 
-  alarmSound();
+  void playCustomAlarm();
 
+  /*
+   * Repeat the custom sound.
+   */
   alarmTimer = setInterval(() => {
-    alarmSound();
-  }, 1200);
+    void playCustomAlarm();
+  }, 2500);
 
   return true;
 }
@@ -99,6 +123,11 @@ export function stopAlarm() {
   if (alarmTimer) {
     clearInterval(alarmTimer);
     alarmTimer = null;
+  }
+
+  if (audioElement) {
+    audioElement.pause();
+    audioElement.currentTime = 0;
   }
 }
 
