@@ -1,199 +1,243 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef } from "react";
 import { enableAlarmAudio } from "@/lib/alarm";
 
 export default function PushSetup() {
-  const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState(false);
+  const started = useRef(false);
 
-  async function enable() {
-    if (busy) return;
+  useEffect(() => {
+    if (started.current) return;
 
-    setBusy(true);
-    setStatus("");
+    started.current = true;
 
-    try {
-      // Unlock browser audio first.
-      const audioReady = await enableAlarmAudio();
+    void setupPush();
 
-      if (!audioReady) {
-        setStatus(
-          "Sound could not be enabled. Check your browser sound settings."
-        );
-      }
+    /*
+     * Try to unlock/resume alarm audio automatically.
+     * Browsers may allow this if audio was previously unlocked.
+     */
+    void enableAlarmAudio();
 
-      // Check browser notification support.
-      if (!("Notification" in window)) {
-        setStatus(
-          audioReady
-            ? "✅ Sound enabled. Browser notifications are not supported."
-            : "Notifications are not supported on this browser."
-        );
-        return;
-      }
+    /*
+     * If the browser requires a user gesture,
+     * silently try again on the first interaction.
+     *
+     * No button is shown to the user.
+     */
+    const unlockAudio = () => {
+      void enableAlarmAudio();
+    };
 
-      if (!("serviceWorker" in navigator)) {
-        setStatus(
-          audioReady
-            ? "✅ Sound enabled. Service workers are not supported."
-            : "Service workers are not supported here."
-        );
-        return;
-      }
+    window.addEventListener(
+      "pointerdown",
+      unlockAudio,
+      { once: true }
+    );
 
-      if (!("PushManager" in window)) {
-        setStatus(
-          audioReady
-            ? "✅ Sound enabled. Push notifications are not supported."
-            : "Push notifications are not supported here."
-        );
-        return;
-      }
+    window.addEventListener(
+      "keydown",
+      unlockAudio,
+      { once: true }
+    );
 
-      const vapidKey =
-        process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    return () => {
+      window.removeEventListener(
+        "pointerdown",
+        unlockAudio
+      );
 
-      if (!vapidKey) {
-        setStatus(
-          audioReady
-            ? "✅ Sound enabled. Push is not configured."
-            : "Push is not configured."
-        );
-        return;
-      }
+      window.removeEventListener(
+        "keydown",
+        unlockAudio
+      );
+    };
+  }, []);
 
-      let permission = Notification.permission;
+  return null;
+}
 
-      if (permission !== "granted") {
-        permission =
-          await Notification.requestPermission();
-      }
+async function setupPush() {
+  try {
+    if (typeof window === "undefined") {
+      return;
+    }
 
-      if (permission !== "granted") {
-        setStatus(
-          audioReady
-            ? "✅ Sound enabled. Notifications are blocked."
-            : "Notifications are blocked."
-        );
-        return;
-      }
+    if (!("Notification" in window)) {
+      console.log(
+        "ParkPing: Notifications not supported."
+      );
+      return;
+    }
 
-      const registration =
-        await navigator.serviceWorker.register("/sw.js");
+    if (!("serviceWorker" in navigator)) {
+      console.log(
+        "ParkPing: Service workers not supported."
+      );
+      return;
+    }
 
-      await navigator.serviceWorker.ready;
+    if (!("PushManager" in window)) {
+      console.log(
+        "ParkPing: Push notifications not supported."
+      );
+      return;
+    }
 
-      let subscription =
-        await registration.pushManager.getSubscription();
+    const vapidKey =
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
-      if (!subscription) {
-        subscription =
-          await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey:
-              urlBase64ToUint8Array(vapidKey),
-          });
-      }
+    if (!vapidKey) {
+      console.error(
+        "ParkPing: VAPID public key is missing."
+      );
+      return;
+    }
 
-      const json = subscription.toJSON();
+    let permission =
+      Notification.permission;
 
-      if (
-        !json.endpoint ||
-        !json.keys?.p256dh ||
-        !json.keys?.auth
-      ) {
-        throw new Error(
-          "Could not create a valid push subscription."
-        );
-      }
+    /*
+     * Only request permission if it has never
+     * been decided before.
+     */
+    if (permission === "default") {
+      permission =
+        await Notification.requestPermission();
+    }
 
-      const response = await fetch(
+    /*
+     * User denied notifications.
+     * Don't repeatedly ask.
+     */
+    if (permission !== "granted") {
+      console.log(
+        "ParkPing: Notification permission not granted."
+      );
+      return;
+    }
+
+    /*
+     * Register service worker.
+     */
+    const registration =
+      await navigator.serviceWorker.register(
+        "/sw.js"
+      );
+
+    await navigator.serviceWorker.ready;
+
+    /*
+     * Reuse existing subscription whenever possible.
+     */
+    let subscription =
+      await registration.pushManager.getSubscription();
+
+    /*
+     * Create subscription only if necessary.
+     */
+    if (!subscription) {
+      subscription =
+        await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey:
+            urlBase64ToArrayBuffer(
+              vapidKey
+            ),
+        });
+    }
+
+    const json =
+      subscription.toJSON();
+
+    if (
+      !json.endpoint ||
+      !json.keys?.p256dh ||
+      !json.keys?.auth
+    ) {
+      throw new Error(
+        "Invalid push subscription."
+      );
+    }
+
+    /*
+     * Save/update subscription in Supabase.
+     */
+    const response =
+      await fetch(
         "/api/push/subscribe",
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
           body: JSON.stringify({
-            endpoint: json.endpoint,
-            p256dh: json.keys.p256dh,
-            auth: json.keys.auth,
+            endpoint:
+              json.endpoint,
+            p256dh:
+              json.keys.p256dh,
+            auth:
+              json.keys.auth,
           }),
         }
       );
 
-      const result = await response.json();
+    const result =
+      await response.json();
 
-      if (!response.ok) {
-        throw new Error(
-          result?.error ||
-            "Failed to save push subscription."
-        );
-      }
-
-      setStatus(
-        "✅ Alerts + sound enabled"
+    if (!response.ok) {
+      throw new Error(
+        result?.error ||
+          "Failed to save push subscription."
       );
-    } catch (error) {
-      console.error("Push setup error:", error);
-
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : "Could not enable notifications."
-      );
-    } finally {
-      setBusy(false);
     }
+
+    console.log(
+      "ParkPing: Alerts automatically enabled."
+    );
+  } catch (error) {
+    console.error(
+      "ParkPing automatic alert setup failed:",
+      error
+    );
   }
-
-  return (
-    <div>
-      <button
-        className="btn btn-light"
-        onClick={enable}
-        disabled={busy}
-      >
-        {busy
-          ? "Enabling…"
-          : "🔔 Enable alerts & sound"}
-      </button>
-
-      {status && (
-        <div
-          className="muted"
-          style={{
-            fontSize: 12,
-            marginTop: 6,
-          }}
-        >
-          {status}
-        </div>
-      )}
-    </div>
-  );
 }
 
-function urlBase64ToUint8Array(
+function urlBase64ToArrayBuffer(
   base64String: string
-) {
+): ArrayBuffer {
   const padding =
     "=".repeat(
-      (4 - (base64String.length % 4)) % 4
+      (4 -
+        (base64String.length % 4)) %
+        4
     );
 
-  const base64 = (
-    base64String + padding
-  )
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
+  const base64 =
+    base64String + padding;
 
-  const rawData = atob(base64);
+  const normalized =
+    base64
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
 
-  return Uint8Array.from(
-    Array.from(rawData).map((char) =>
-      char.charCodeAt(0)
-    )
-  );
+  const rawData =
+    atob(normalized);
+
+  const bytes =
+    new Uint8Array(
+      rawData.length
+    );
+
+  for (
+    let i = 0;
+    i < rawData.length;
+    i++
+  ) {
+    bytes[i] =
+      rawData.charCodeAt(i);
+  }
+
+  return bytes.buffer;
 }
