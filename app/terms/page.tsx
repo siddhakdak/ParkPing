@@ -1,0 +1,1 @@
+export default function Terms(){return <main className="container" style={{maxWidth:760,padding:"50px 0"}}><h1>Terms of Service</h1><p className="muted">Placeholder — replace with your final legal terms before launch.</p><p>Users must not use ParkPing for harassment, threats, spam, unlawful surveillance or any other unlawful purpose.</p></main>}
