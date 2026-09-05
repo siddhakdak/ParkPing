@@ -474,6 +474,8 @@ export default function DashboardClient({
                     ✏️ Edit
                   </Link>
 
+          
+
                   <button
                     type="button"
                     className="btn btn-light"
@@ -533,4 +535,6 @@ export default function DashboardClient({
       </div>
     </main>
   );
+  
 }
+
